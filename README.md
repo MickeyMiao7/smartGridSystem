@@ -1,6 +1,6 @@
-#Smart Grid System Model
+# Smart Grid System Model
 
-##CS5232
+## CS5232
 
 Group Member:
 
