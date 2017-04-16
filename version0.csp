@@ -8,7 +8,7 @@ enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_no
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
 
-var realQuote = 43584;
+var realQuote;
 var quoteMatch = false;
 
 // var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
@@ -31,29 +31,43 @@ PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
 QueryPrice(pubk) = 
 	c1!usageQuery ->             // **** Need to encrypt using pubk ****
 	(c1?TPMquote -> 
-	PowerSupplierVerifyQuote(TPMquote) []
+	PowerSupplierVerifyQuote(TPMquote, 2) []
 	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****;
 	c1?TPMquote -> 
-	PowerSupplierVerifyQuote(TPMquote));
+	PowerSupplierVerifyQuote(TPMquote, 1));
 
 // Thirdly, end connection	
-PowerSupplierVerifyQuote(quote) = 
-	if(quote == realQuote)
-	{
-		powerSupplierDisconnectTRE{quoteMatch = true;} ->
-		PowerSupplierDisconnectTRE();
+PowerSupplierVerifyQuote(quote, x) = 
+	if(x == 1)  //TRE rejects the request from PowerSupplier
+	{	
+		calculateQuote{realQuote = 43584;} ->
+		if(quote == realQuote)
+		{
+			powerSupplierDisconnectTRE{quoteMatch = true;} ->
+			PowerSupplierDisconnectTRE()
+		}
+		else
+		{
+			Skip
+		}
 	}
-	else
+	else  //TRE rejects the request from PowerSupplier
 	{
-		Skip;
-	}
+		calculateQuote{realQuote = 43251;} ->
+		if(quote == realQuote)
+		{
+			powerSupplierDisconnectTRE{quoteMatch = true;} ->
+			PowerSupplierDisconnectTRE()
+		}
+		else
+		{
+			Skip
+		}
+	};
 
 PowerSupplierDisconnectTRE() = 
 	Skip;
 
-//PowerSupplierVerifyQuote(quote) = 
-//	calculateQuote{realQuote = call(calculateQuote);} ->
-	
 	
 // ---------------------------
 
