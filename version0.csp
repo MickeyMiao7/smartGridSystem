@@ -40,7 +40,8 @@ QueryPrice(pubk) =
 PowerSupplierVerifyQuote(quote, x) = 
 	if(x == 1)  //TRE rejects the request from PowerSupplier
 	{	
-		calculateQuote{realQuote = 43584;} ->
+		// PS_nonce -> 0, seal -> 1, accept -> 2, calculate -> 3
+		calculateQuote{realQuote = call(HashFunction1, 0, 1, 2, 3);} ->
 		if(quote == realQuote)
 		{
 			powerSupplierDisconnectTRE{quoteMatch = true;} ->
@@ -53,7 +54,8 @@ PowerSupplierVerifyQuote(quote, x) =
 	}
 	else  //TRE rejects the request from PowerSupplier
 	{
-		calculateQuote{realQuote = 43251;} ->
+		// PS_nonce -> 0, seal -> 1, reject -> 4, calculate -> 3
+		calculateQuote{realQuote = call(HashFunction2, 0, 1, 4);} ->
 		if(quote == realQuote)
 		{
 			powerSupplierDisconnectTRE{quoteMatch = true;} ->
