@@ -3,17 +3,17 @@
 // The functions of "extend" and "calculate price" operations have not been implemented, currently they are used as EXTEND and CALCULATED_PRICE
 // The process of encrypt and decrypt have not been implemented
 
-enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE};
+enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE, Nobody};
 
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
 
+var realQuote = 43584;
+var quoteMatch = false;
+
 // var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
 // var TRE_TPM_connection = 0; 
 var TPMAccept = 0;                       // 0 represents deny the query, 1 represents accept the query
-
-
-
 
 // Process of Power Supplier, it consists of three events:
 
@@ -22,7 +22,7 @@ PowerSupplierProc() = PowerSupplierConnectTRE();
 
 PowerSupplierConnectTRE() = 
 	c1!PowerSupplier.request -> 
-	c1!nonce ->
+	c1!PS_nonce ->
 	PowerSupplierConnected();
 	
 PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
@@ -30,13 +30,29 @@ PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
 // Secondly, it sends query of price
 QueryPrice(pubk) = 
 	c1!usageQuery ->             // **** Need to encrypt using pubk ****
-	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****
-	PowerSupplierDisconnectTRE();
+	(c1?TPMquote -> 
+	PowerSupplierVerifyQuote(TPMquote) []
+	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****;
+	c1?TPMquote -> 
+	PowerSupplierVerifyQuote(TPMquote));
 
 // Thirdly, end connection	
+PowerSupplierVerifyQuote(quote) = 
+	if(quote == realQuote)
+	{
+		powerSupplierDisconnectTRE{quoteMatch = true;} ->
+		PowerSupplierDisconnectTRE();
+	}
+	else
+	{
+		Skip;
+	}
+
 PowerSupplierDisconnectTRE() = 
-	c1?TPMquote ->
 	Skip;
+
+//PowerSupplierVerifyQuote(quote) = 
+//	calculateQuote{realQuote = call(calculateQuote);} ->
 	
 	
 // ---------------------------
@@ -47,7 +63,7 @@ TREProc() = TREConnect();
 // Firstly, connecting to Power Supplier and TPM
 TREConnect() = 
 	c1?x.request ->			         	// receive request from Power Supplier
-	c1?nonce ->				        	// receive nonce from Power Supplier
+	c1?PS_nonce ->				        	// receive nonce from Power Supplier
 	c2!EXTEND ->  				        // extend(receive nonce from Power Supplier)
 	c2?publicKey ->
 	c2!EXTEND -> 				        // extend(receive key from TPM)
@@ -122,6 +138,6 @@ TPMResponseUsageQuery() =
 // TPM end service
 TPMEnd() = c2!TPMquote -> Skip;
 	
-	
-	
 Protocol = PowerSupplierProc() ||| TREProc() ||| TPM();
+
+#assert Protocol deadlockfree;
