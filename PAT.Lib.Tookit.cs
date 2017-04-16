@@ -29,7 +29,7 @@ namespace PAT.Lib
 　　		    iResult = ro.Next(iUp);
 　　		    return iResult;
         }
-        
+
         // // extend calculate/ accept/ reject and seal, return hashvalue.        
         // public static string HashFunction(string old_hash, string operation)
         // {
@@ -125,7 +125,6 @@ namespace PAT.Lib
         	price = usage * 7 + 12;	
         	return price;
         }
-    
 
     }
 }
