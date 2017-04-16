@@ -30,67 +30,6 @@ namespace PAT.Lib
 　　		return iResult;
         }
         
-        // extend calculate/ accept/ reject and seal, return hashvalue.        
-        public static string HashFunction(string old_hash, string operation)
-        {
-            // extend calculate price
-            if (operation == "calculate"){
-                // calculate *7 hash
-                String toHash = old_hash + "*7";
-                MD5 md5 = new MD5CryptoServiceProvider();
-                byte[] data = System.Text.Encoding.Default.GetBytes(toHash);   
-                byte[] md5data = md5.ComputeHash(data);  
-                md5.Clear();  
-                string mid = "";  
-                for (int i = 0; i < md5data.Length - 1; ++i)  
-                {  
-                    mid += md5data[i].ToString("x").PadLeft(2, '0');  
-                }  
-                // calculate +12 hash
-                mid += "+12";
-                data = System.Text.Encoding.Default.GetBytes(mid); 
-                md5data = md5.ComputeHash(data);  
-                md5.Clear();  
-                string ans = "";  
-                for (int i = 0; i < md5data.Length - 1; ++i)  
-                {  
-                    ans += md5data[i].ToString("x").PadLeft(2, '0');  
-                } 
-                return ans;
-            }
-            // other operations
-            // seal / accept / reject
-            else {
-                String toHash = old_hash + operation;
-                MD5 md5 = new MD5CryptoServiceProvider();
-                byte[] data = System.Text.Encoding.Default.GetBytes(toHash);   
-                byte[] md5data = md5.ComputeHash(data);  
-                md5.Clear();  
-                string ans = "";  
-                for (int i = 0; i < md5data.Length - 1; ++i)  
-                {  
-                    ans += md5data[i].ToString("x").PadLeft(2, '0');  
-                }  
-                return ans;
-            }
-        }
-
-        // extend nonce, return the first hash value
-        public static string HashFunction(int nonce)
-        {
-            MD5 md5 = new MD5CryptoServiceProvider();  
-            byte[] data = System.Text.Encoding.Default.GetBytes(nonce.ToString());   
-            byte[] md5data = md5.ComputeHash(data);  
-            md5.Clear();  
-            string ans = "";  
-            for (int i = 0; i < md5data.Length - 1; ++i)  
-            {  
-                ans += md5data[i].ToString("x").PadLeft(2, '0');  
-            }  
-            return ans;
-        }
-        
-        
         // calculate the price 
         public static int CalculatePrice(int usage)
         {
@@ -99,13 +38,5 @@ namespace PAT.Lib
         	return price;
         }
         
-        public static string[] GenerateKeys()
-        {
-        	string[] keys = new String[2];
-        	RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();
-        	keys[0] = rsa.ToXmlString(true);
-        	keys[1] = rsa.ToXmlString(false);
-        	return keys;
-        }
     }
 }

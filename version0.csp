@@ -1,15 +1,16 @@
-﻿// #import "PAT.Lib.Toolkit";
+﻿#import "PAT.Lib.Tookit";
 
 // The functions of "extend" and "calculate price" operations have not been implemented, currently they are used as EXTEND and CALCULATED_PRICE
 // The process of encrypt and decrypt have not been implemented
 
-enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE, Nobody};
+enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE};
 
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
 
 var realQuote;
 var quoteMatch = false;
+var price;
 
 // var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
 // var TRE_TPM_connection = 0; 
@@ -40,8 +41,8 @@ QueryPrice(pubk) =
 PowerSupplierVerifyQuote(quote, x) = 
 	if(x == 1)  //TRE rejects the request from PowerSupplier
 	{	
-		// PS_nonce -> 0, seal -> 1, accept -> 2, calculate -> 3
-		calculateQuote{realQuote = call(HashFunction1, 0, 1, 2, 3);} ->
+		// PS_nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
+		//calculateQuote{realQuote = call(HashFunction1, 9, 1, 2, 3, 4);} ->
 		if(quote == realQuote)
 		{
 			powerSupplierDisconnectTRE{quoteMatch = true;} ->
@@ -54,8 +55,8 @@ PowerSupplierVerifyQuote(quote, x) =
 	}
 	else  //TRE rejects the request from PowerSupplier
 	{
-		// PS_nonce -> 0, seal -> 1, reject -> 4, calculate -> 3
-		calculateQuote{realQuote = call(HashFunction2, 0, 1, 4);} ->
+		// PS_nonce -> 9, seal -> 1, reject -> 5
+		//calculateQuote{realQuote = call(HashFunction2, 9, 1, 5);} ->
 		if(quote == realQuote)
 		{
 			powerSupplierDisconnectTRE{quoteMatch = true;} ->
@@ -105,8 +106,7 @@ TREResponseUsageQuery(accept) =
 		c2!usageQuery ->                // send usage query to TPM
 		c2?usageInfo ->                 // get usage info from TPM (encrypted)
 		c2!EXTEND ->                    // extend(calculate)
-		c2?price ->                     // get price (encrypted)
-		c1!price ->						// send price (encrpted)
+		calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
 		TREDisconnect()
 	}
 	else{
