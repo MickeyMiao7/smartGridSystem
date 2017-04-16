@@ -1,19 +1,22 @@
-﻿// #import "PAT.Lib.Toolkit";
+﻿#import "PAT.Lib.Tookit";
 
 // The functions of "extend" and "calculate price" operations have not been implemented, currently they are used as EXTEND and CALCULATED_PRICE
 // The process of encrypt and decrypt have not been implemented
 
-enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE};
+enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE};
 
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
+channel c3 0;                         // channel for communication for hash value
+
+var realQuote;
+var quoteMatch = false;
+var price;
+var hashValue;
 
 // var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
 // var TRE_TPM_connection = 0; 
 var TPMAccept = 0;                       // 0 represents deny the query, 1 represents accept the query
-
-
-
 
 // Process of Power Supplier, it consists of three events:
 
@@ -22,7 +25,7 @@ PowerSupplierProc() = PowerSupplierConnectTRE();
 
 PowerSupplierConnectTRE() = 
 	c1!PowerSupplier.request -> 
-	c1!nonce ->
+	c1!PS_nonce ->
 	PowerSupplierConnected();
 	
 PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
@@ -30,14 +33,46 @@ PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
 // Secondly, it sends query of price
 QueryPrice(pubk) = 
 	c1!usageQuery ->             // **** Need to encrypt using pubk ****
-	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****
-	PowerSupplierDisconnectTRE();
+	(c1?TPMquote -> 
+	PowerSupplierVerifyQuote(TPMquote, 2) []
+	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****;
+	c1?TPMquote -> 
+	PowerSupplierVerifyQuote(TPMquote, 1));
 
 // Thirdly, end connection	
+PowerSupplierVerifyQuote(quote, x) = 
+	if(x == 1)  //TRE rejects the request from PowerSupplier
+	{	
+		// PS_nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
+		//calculateQuote{realQuote = call(HashFunction1, 9, 1, 2, 3, 4);} ->
+		if(quote == realQuote)
+		{
+			powerSupplierDisconnectTRE{quoteMatch = true;} ->
+			PowerSupplierDisconnectTRE()
+		}
+		else
+		{
+			Skip
+		}
+	}
+	else  //TRE rejects the request from PowerSupplier
+	{
+		// PS_nonce -> 9, seal -> 1, reject -> 5
+		//calculateQuote{realQuote = call(HashFunction2, 9, 1, 5);} ->
+		if(quote == realQuote)
+		{
+			powerSupplierDisconnectTRE{quoteMatch = true;} ->
+			PowerSupplierDisconnectTRE()
+		}
+		else
+		{
+			Skip
+		}
+	};
+
 PowerSupplierDisconnectTRE() = 
-	c1?TPMquote ->
 	Skip;
-	
+
 	
 // ---------------------------
 
@@ -47,10 +82,10 @@ TREProc() = TREConnect();
 // Firstly, connecting to Power Supplier and TPM
 TREConnect() = 
 	c1?x.request ->			         	// receive request from Power Supplier
-	c1?nonce ->				        	// receive nonce from Power Supplier
-	c2!EXTEND ->  				        // extend(receive nonce from Power Supplier)
+	c1?PS_nonce ->				        // receive nonce from Power Supplier
+	extendOperation{hashValue = call(Extend, 0, 9);} ->  			// extend nonce
 	c2?publicKey ->
-	c2!EXTEND -> 				        // extend(receive key from TPM)
+	extendOperation{hashValue = call(Extend, hashValue, 1);} -> 				// extend seal
 	c1!publicKey -> 
 	TREConnected(x);
 
@@ -69,16 +104,16 @@ TREConnected(x) =
 // Secondly, respond the usage query
 TREResponseUsageQuery(accept) =
 	if (accept == 1){
-		c2!EXTEND ->                    // extend(accept)
+		extendOperation{hashValue = call(Extend, hashValue, 2);} ->                    // extend accept
 		c2!usageQuery ->                // send usage query to TPM
 		c2?usageInfo ->                 // get usage info from TPM (encrypted)
-		c2!EXTEND ->                    // extend(calculate)
-		c2?price ->                     // get price (encrypted)
-		c1!price ->						// send price (encrpted)
+		extendOperation{hashValue = call(Extend, hashValue, 3);} ->                    // extend calculate_add
+		extendOperation{hashValue = call(Extend, hashValue, 4);} ->                    // extend calculate_multiply
+		calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
 		TREDisconnect()
 	}
 	else{
-		c2!EXTEND ->                    // extend(accept)
+		extendOperation{hashValue = call(Extend, hashValue, 5);} ->                     // extend(reject)
 		TREDisconnect() 				
 	};
 	
@@ -98,30 +133,25 @@ TREDisconnect() =
 TPM() = TPMConnect();
 
 TPMConnect() =  
-	c2?EXTEND ->              			// receive the message of TRE extend(nonce)
 	// ...
 	// prepare keys, not implemented yet
 	// ...
 	c2!publicKey ->                     // send public key
-	c2?EXTEND ->                        // receive the message of TRE accept keys
 	
 	TPMResponseUsageQuery();
 	
 TPMResponseUsageQuery() = 
 	if(TPMAccept == 1){
-		c2?EXTEND ->                    // receive the message of TRE accept the usage info query
 		c2!usageInfo ->                 // **** Need to encrypt using private key ****
-		c2?EXTEND ->                    // receive the message of TRE calculates the price
 		TPMEnd()
 	}
 	else{
-		c2?EXTEND ->                    // receive the message of TRE rejects the usage info query
 		TPMEnd()
 	};
 	
 // TPM end service
 TPMEnd() = c2!TPMquote -> Skip;
 	
-	
-	
 Protocol = PowerSupplierProc() ||| TREProc() ||| TPM();
+
+#assert Protocol deadlockfree;

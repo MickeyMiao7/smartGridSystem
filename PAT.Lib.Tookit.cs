@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Security.Cryptography;
@@ -112,7 +112,7 @@ namespace PAT.Lib
         //Simplified extend function using by power supplier
         public static int HashFunction2(int nounce, int seal, int reject)
         {
-            in ans = nounce;
+            int ans = nounce;
             ans = (ans)*10 + seal;
             ans = (ans)*10 + reject;
             return ans;
