@@ -1,0 +1,117 @@
+﻿// #import "PAT.Lib.Toolkit";
+
+// The functions of "extend" and "calculate price" operations have not been implemented, currently they are used as EXTEND and CALCULATED_PRICE
+// The process of encrypt and decrypt have not been implemented
+
+enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, nonce, calculatedPrice, TPMquote, EXTEND, CALCULATED_PRICE};
+
+channel c1 0;                         // channel between Power Supplier and TRE
+channel c2 0;                         // channel between TRE and TPM
+
+// var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
+// var TRE_TPM_connection = 0; 
+var accept = 0;                       // 0 represents deny the query, 1 represents accept the query
+var price = 0;  
+
+#define goal accept == 1 && price != 0;
+
+// Process of Power Supplier, it consists of three events:
+
+// Firstly, it connects TRE
+PowerSupplierProc() = PowerSupplierConnectTRE();
+
+PowerSupplierConnectTRE() = 
+	c1!PowerSupplier.request -> 
+	c1!nonce ->
+	c1?publicKey -> 
+	QueryPrice();
+
+// Secondly, it sends query of price
+QueryPrice() = 
+	c1!usageQuery -> 
+	c1?calculatedprice ->
+	getPrice{price = calculatedPrice;} ->
+	PowerSupplierDisconnectTRE();
+
+// Thirdly, end connection	
+PowerSupplierDisconnectTRE() = 
+	c1?TPMquote ->
+	Skip;
+	
+	
+
+// ---------------------------
+
+// Process of TRE, it consists of three events
+TREProc() = TREConnect();
+
+// Firstly, connecting to Power Supplier and TPM
+TREConnect() = 
+	c1?x.request ->			         	// receive request from Power Supplier
+	c1?nonce ->				        	// receive nonce from Power Supplier
+	c2!EXTEND ->  				        // extend(receive nonce from Power Supplier)
+	c2?publicKey ->
+	c2!EXTEND -> 				        // extend(receive key from TPM)
+	c1!publicKey -> 
+	c1?usageQuery -> 
+	TREResponseUsageQuery(x);
+
+// Secondly, respond the usage query
+TREResponseUsageQuery(x) =
+	if (x == PowerSupplier){
+		acceptUsageQuery{accept = 1;} ->
+		c2!EXTEND ->                    // extend(accept)
+		c2!usageQuery ->                // send usage query to TPM
+		c2?usageInfo ->                 // get usage info
+		calculatPrice{price = 1;} ->    // calculate price, the function has not been implemented yet, so just assign 1 to the variable
+		c2!EXTEND ->                    // extend(calculate)
+		c1!price ->
+		TREDisconnect()
+	}
+	else{
+		rejectUsageQuery{accept = 0;} ->
+		c2!EXTEND ->
+		TREDisconnect() 				// extend(reject)
+	};
+	
+	
+
+// Thirdly, finish the service and disconnect
+TREDisconnect() = 
+	c2?TPMquote ->
+	c1!TPMquote ->
+	Skip;
+	
+	
+	
+// ---------------------------
+
+// Process of TPM. Since most of TPM job is receiving the extend and prepare keys, these parts are not complete
+TPM() = 
+	c2?EXTEND ->              			// receive the message of TRE extend(nonce)
+	
+	// ...
+	// prepare keys, not implemented yet
+	// ...
+	
+	c2!publicKey ->                     // send public key
+	c2?EXTEND ->                        // receive the message of TRE accept keys
+	
+	if(accept == 1){
+		c2?EXTEND ->                    // receive the message of TRE accept the usage info query
+		c2!usageInfo ->                 // send usageInfo 
+		c2?EXTEND ->                    // receive the message of TRE calculates the price
+		TPMEnd()
+	}
+	else{
+		c2?EXTEND ->                    // receive the message of TRE rejects the usage info query
+		TPMEnd()
+	};
+	
+// TPM end service
+TPMEnd() = c2!TPMquote -> Skip;
+	
+	
+	
+Protocol = PowerSupplierProc() ||| TREProc() ||| TPM();
+#assert Protocol reaches goal;
