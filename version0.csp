@@ -10,10 +10,10 @@ channel c2 0;                         // channel between TRE and TPM
 
 // var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
 // var TRE_TPM_connection = 0; 
-var accept = 0;                       // 0 represents deny the query, 1 represents accept the query
-var price = 0;  
+var TPMAccept = 0;                       // 0 represents deny the query, 1 represents accept the query
 
-#define goal accept == 1 && price != 0;
+
+
 
 // Process of Power Supplier, it consists of three events:
 
@@ -23,14 +23,14 @@ PowerSupplierProc() = PowerSupplierConnectTRE();
 PowerSupplierConnectTRE() = 
 	c1!PowerSupplier.request -> 
 	c1!nonce ->
-	c1?publicKey -> 
-	QueryPrice();
+	PowerSupplierConnected();
+	
+PowerSupplierConnected() = 	c1?publicKey -> QueryPrice(publicKey);
 
 // Secondly, it sends query of price
-QueryPrice() = 
-	c1!usageQuery -> 
-	c1?calculatedprice ->
-	getPrice{price = calculatedPrice;} ->
+QueryPrice(pubk) = 
+	c1!usageQuery ->             // **** Need to encrypt using pubk ****
+	c1?priceEncrypted ->         // **** Need to decrypt using pubk ****
 	PowerSupplierDisconnectTRE();
 
 // Thirdly, end connection	
@@ -39,7 +39,6 @@ PowerSupplierDisconnectTRE() =
 	Skip;
 	
 	
-
 // ---------------------------
 
 // Process of TRE, it consists of three events
@@ -53,25 +52,34 @@ TREConnect() =
 	c2?publicKey ->
 	c2!EXTEND -> 				        // extend(receive key from TPM)
 	c1!publicKey -> 
-	c1?usageQuery -> 
-	TREResponseUsageQuery(x);
+	TREConnected(x);
+
+TREConnected(x) = 
+	if(x == PowerSupplier){
+		c1?usageQuery -> 
+		TREResponseUsageQuery(1)
+	}
+	
+	else{
+		c1?usageQuery -> 
+		TREResponseUsageQuery(0)
+	};
+	
 
 // Secondly, respond the usage query
-TREResponseUsageQuery(x) =
-	if (x == PowerSupplier){
-		acceptUsageQuery{accept = 1;} ->
+TREResponseUsageQuery(accept) =
+	if (accept == 1){
 		c2!EXTEND ->                    // extend(accept)
 		c2!usageQuery ->                // send usage query to TPM
-		c2?usageInfo ->                 // get usage info
-		calculatPrice{price = 1;} ->    // calculate price, the function has not been implemented yet, so just assign 1 to the variable
+		c2?usageInfo ->                 // get usage info from TPM (encrypted)
 		c2!EXTEND ->                    // extend(calculate)
-		c1!price ->
+		c2?price ->                     // get price (encrypted)
+		c1!price ->						// send price (encrpted)
 		TREDisconnect()
 	}
 	else{
-		rejectUsageQuery{accept = 0;} ->
-		c2!EXTEND ->
-		TREDisconnect() 				// extend(reject)
+		c2!EXTEND ->                    // extend(accept)
+		TREDisconnect() 				
 	};
 	
 	
@@ -87,19 +95,22 @@ TREDisconnect() =
 // ---------------------------
 
 // Process of TPM. Since most of TPM job is receiving the extend and prepare keys, these parts are not complete
-TPM() = 
+TPM() = TPMConnect();
+
+TPMConnect() =  
 	c2?EXTEND ->              			// receive the message of TRE extend(nonce)
-	
 	// ...
 	// prepare keys, not implemented yet
 	// ...
-	
 	c2!publicKey ->                     // send public key
 	c2?EXTEND ->                        // receive the message of TRE accept keys
 	
-	if(accept == 1){
+	TPMResponseUsageQuery();
+	
+TPMResponseUsageQuery() = 
+	if(TPMAccept == 1){
 		c2?EXTEND ->                    // receive the message of TRE accept the usage info query
-		c2!usageInfo ->                 // send usageInfo 
+		c2!usageInfo ->                 // **** Need to encrypt using private key ****
 		c2?EXTEND ->                    // receive the message of TRE calculates the price
 		TPMEnd()
 	}
@@ -114,4 +125,3 @@ TPMEnd() = c2!TPMquote -> Skip;
 	
 	
 Protocol = PowerSupplierProc() ||| TREProc() ||| TPM();
-#assert Protocol reaches goal;
