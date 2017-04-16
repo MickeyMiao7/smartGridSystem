@@ -107,19 +107,19 @@ TREConnected(x) =
 TREResponseUsageQuery(accept) =
 	if (accept == 1){
 		// extendOperation{hashValue = call(Extend, hashValue, 2);} ->                    // extend accept
-		c2!2 ->
+//		c2!2 ->
 		c2!usageQuery ->                // send usage query to TPM
 		c2?usageInfo ->                 // get usage info from TPM (encrypted)
 		// extendOperation{hashValue = call(Extend, hashValue, 3);} ->                    // extend calculate_add
-		c2!3 ->
+//		c2!3 ->
 		// extendOperation{hashValue = call(Extend, hashValue, 4);} ->                    // extend calculate_multiply
-		c2!4 ->
+//		c2!4 ->
 		calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
 		TREDisconnect()
 	}
 	else{
 		// extendOperation{hashValue = call(Extend, hashValue, 5);} ->                     // extend(reject)
-		c2!5 ->
+//		c2!5 ->
 		TREDisconnect() 				
 	};
 	
@@ -149,27 +149,28 @@ TPMConnect() =
 	// extend seal
 	c2?operation ->
 	extendOperation{hashValue = call(Extend, hashValue, operation);} ->
-	// extend accept
-	(c2?operation ->
-	extendOperation{hashValue = call(Extend, hashValue, operation);} ->
-	// extend calculate_add ->
-	c2?operation ->
-	extendOperation{hashValue = call(Extend, hashValue, operation);} ->
-	// extend calculate_multiply
-	c2?operation ->
-	extendOperation{hashValue = call(Extend, hashValue, operation);} -> []
-	// extebd reject
-	c2?operation ->
-	extendOperation{hashValue = call(Extend, hashValue, operation);} ) ->
-	
 	TPMResponseUsageQuery();
 	
 TPMResponseUsageQuery() = 
 	if(TPMAccept == 1){
 		c2?usageInfo ->                 // **** Need to encrypt using private key ****
+		
+//		// extend accept
+//		c2?operation ->
+//		extendOperation{hashValue = call(Extend, hashValue, operation);} ->
+//		// extend calculate_add ->
+//		c2?operation ->
+//		extendOperation{hashValue = call(Extend, hashValue, operation);} ->
+//		// extend calculate_multiply
+//		c2?operation ->
+//		extendOperation{hashValue = call(Extend, hashValue, operation);} ->
 		TPMEnd()
 	}
+	
 	else{
+		// extebd reject
+//		c2?operation ->
+//		extendOperation{hashValue = call(Extend, hashValue, operation);}  ->
 		TPMEnd()
 	};
 	
