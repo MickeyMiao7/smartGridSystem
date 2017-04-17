@@ -2,7 +2,7 @@
 
 // all constant starts with Upper case, while all local variable starts with lower case.
 enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, UsageQuery, Price, EncryptedPrice, ExtendNonce, 
-	ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice};
+	ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker};
 
 channel c1 0;
 channel c2 0;
@@ -11,6 +11,7 @@ channel c2 0;
 var REALQUOTE;
 var QUOTEMATCH; // if TRE returns real quote
 var TPMFINALQUOTE;
+var hashValue;
 
 
 // Process of PS
@@ -125,10 +126,10 @@ TPMProc() = TPMStart();
 // 1. receive extend nonce, prepare key, receive seal, send public key
 TPMStart() = 
 	c2?ExtendNonce ->
-	ExtendNonceOperation -> //todo
+	extendOperation{hashValue = call(Extend, 0, 9);} ->           // extend nonce in TPM
 	perpareKeys ->
 	c2?ExtendSeal ->
-	ExtendSealOperation -> //todo
+	extendOperation{hashValue = call(Extend, hashValue, 1);} ->   // extend seal in TPM
 	c2!PublicKey ->
 	TPMBinary();
 
@@ -138,25 +139,27 @@ TPMBinary() = // this part is decided by external
 
 TPMAccept() = 
 	c2?ExtendAccept ->
+	extendOperation{hashValue = call(Extend, hashValue, 2);} ->          // extend accept in TPM
 	c2?UsageQuery ->
 	decryptUsage -> // todo
 	c2!UsageInfo ->
 	c2?operation -> // local variable (here should be ExtendAdd)
-	ExtendAddOperation ->
+	extendOperation{hashValue = call(Extend, hashValue, 3);} ->          // extend calculate_add in TPM
 	c2?operation2 ->
-	ExtendMulOperation ->
 	c2?Price ->
 	encryptPrice ->
 	c2!EncryptedPrice ->
-	TPMEnd();
+	c2!call(Extend, hashValue, 4) ->                                     // extend calculate_multiply and put the final hashvalue into the channel
+	Skip;
 
 TPMReject() = 
 	c2?ExtendReject ->
-	TPMEnd();
-
-TPMEnd() = 
-	c2!91234 -> // send fianl quote
+	c2!call(Extend, hashValue, 5) ->									 // extend reject in TPM and put the final hashvalue into the channel
 	Skip;
+//
+//TPMEnd() = 
+//	c2!91234 -> // send fianl quote
+//	Skip;
 
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
 #define goal QUOTEMATCH == true;

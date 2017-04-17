@@ -1,7 +1,7 @@
 ﻿#import "PAT.Lib.Tookit";
 
 enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, TPMquote, oldHash, operation,
-	extend_nonce, extend_seal, extend_accept, extend_calculate_add, extend_calculate_multiply, extend_reject, TPMValue, finalPrice};
+	extend_nonce, extend_seal, extend_accept, extend_calculate_add, extend_calculate_multiply, extend_reject, TPMValue, finalPrice, accept, reject, TPMresponse};
 
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
@@ -70,28 +70,35 @@ TREConnect() =
 TREConnected(x) = 
 	if(x == PowerSupplier){
 		c1?usageQuery -> 
-		TREResponseUsageQuery()
+		c2!accept ->
+		TREResponse()
 	}
 	else{
-		TRERejectUsageQuery()
+		c2!reject -> 	
+		TREResponse()
 	};
 	
 // Secondly, respond the usage query
-TREResponseUsageQuery() =
-	c2!1 ->							// 1 represents the accept
-	c2!extend_accept ->             // ask TPM to extend accept
-	c2!usageQuery ->                // send usage query to TPM
-	c2?usageInfo ->                 // get usage info from TPM (encrypted)
-	c2!extend_calculate_add ->      // ask TPM to extend calculate_add
-	c2!extend_calculate_multiply -> // ask TPM to extend calculate_multiply
-	calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price
-	c1!finalPrice ->				// send the calculated price to PowerSupplier
-	TREDisconnect();
+TREResponse() = 
+	c2?TPMresponse ->
 	
-TRERejectUsageQuery() =
-	c2!0 -> 						// 0 represents the reject
-	c2!extend_reject -> 			// ask TPM to extend reject
-	TREDisconnect();
+	if(TPMresponse == accept)
+	{
+		c2!extend_accept ->             // ask TPM to extend accept
+		c2!usageQuery ->                // send usage query to TPM
+		c2?usageInfo ->                 // get usage info from TPM (encrypted)
+		c2!extend_calculate_add ->      // ask TPM to extend calculate_add
+		c2!extend_calculate_multiply -> // ask TPM to extend calculate_multiply
+		calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price
+		c1!finalPrice ->				// send the calculated price to PowerSupplier
+		TREDisconnect()
+	}
+	else
+	{
+		c2!extend_reject -> 			// ask TPM to extend reject
+		TREDisconnect()
+	};
+	
 	
 // Thirdly, finish the service and disconnect
 TREDisconnect() = 
@@ -114,13 +121,17 @@ TPMConnect() =
 	c2!publicKey -> 				 // send the public key to TRE
 	
 	c2?AcceptOrReject ->             // receive the value from TRE to know whether accept or reject
+	
 	TPMResponseTRE(AcceptOrReject);
 	
 	
-TPMResponseTRE(AcceptOrReject) = 
-	if(AcceptOrReject == 1)
+TPMResponseTRE(x) = 
+	if(x == accept)
 	{
-		c2?usageInfo ->                 // **** Need to encrypt using private key ****
+		c2!x ->            // TPM responses to TRE's accept or reject
+		
+		c2?usageQuery ->                // receive usageQuery from TRE
+		c2!usageInfo ->                 // **** Need to encrypt using private key ****
 		
 		c2?extend_accept ->
 		extendOperation{hashValue = call(Extend, hashValue, 2);} ->          // extend accept in TPM
@@ -132,6 +143,7 @@ TPMResponseTRE(AcceptOrReject) =
 	}
 	else
 	{
+		c2!x ->			// TPM responses to TRE's accept or reject
 		c2?usageInfo ->                 // **** Need to encrypt using private key ****
 		c2?extend_reject ->													 
 		c2!call(Extend, hashValue, 5) ->									 // extend reject in TPM and put the final hashvalue into the channel
@@ -146,6 +158,3 @@ Protocol = PowerSupplierProc() ||| TREProc() ||| TPMProc();
 #define goal quoteMatch == true;
 #assert Protocol deadlockfree;
 #assert Protocol reaches goal;
-	
-	
-	
