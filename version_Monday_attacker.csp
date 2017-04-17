@@ -166,23 +166,22 @@ TPMReject() =
    c2!call(Extend, HASHVALUE, 5) ->  // extend reject, put the final hashvalue into the channel
    Skip;
 
+
+
 // Process of Attacker
 AttackerProc() = AttackerConnectTRE();
 
-// 1. send Request and nonce
 AttackerConnectTRE() =
    c1!Attacker.Request ->
    c1!PSNonce ->
    attackerconnected{ATTACKER_TRE_CONNECTS = true;} ->
    AttackerConnected();
 
-// 2. get public key and send query
 AttackerConnected() = 
    c1?PublicKey ->
    c1!EncryptedUsageQuery -> 
    PSReceiveResponse();
-
-// 3. receive response from TRE
+   
 AttackerReceiveResponse() = 
    c1?price ->
    c1?quote ->
@@ -192,22 +191,17 @@ AttackerReceiveResponse() =
    else{
       AttackercalculateHash(false, quote)
    };
-
-// 4. calculate local hash
+   
 AttackercalculateHash(x, quote) = 
    if (x == true) { 
-      // We used c# function to calculate hash. This is a simplified hash function. The hash value it returns is a int value.
-      // The parametre matches are listed below:
-      // nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
       calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
       AttackerJudge(quote)
    }
-   else{// nonce -> 9, seal -> 1, reject -> 5
+   else{
       calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
       AttackerJudge(quote)
    };
 
-// 5. last step, compare quote and local hash value.
 AttackerJudge(quote) = 
    if (REALQUOTE == quote) {
       judge{QUOTEMATCH = true} -> Skip
@@ -216,11 +210,15 @@ AttackerJudge(quote) =
       judge{QUOTEMATCH = false} -> Skip
    };
 
+
+
 AttackedProtocol = PSProc() ||| AttackerProc() ||| TREProc() ||| TPMProc();
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
 
 #define goal QUOTEMATCH == true;
-#define violation PS_TRE_CONNECTS && ATTACKER_TRE_CONNECTS == true && ATTACKER_QUERY_ACCEPT == true;
+
+// Only when PowerSupplier and TRE, Attacker and TRE are connected, and attacker is accepted by TRE, the attack could be successful.
+#define violation PS_TRE_CONNECTS == true && ATTACKER_TRE_CONNECTS == true && ATTACKER_QUERY_ACCEPT == true;
 
 #assert Protocol reaches goal;
 #assert AttackedProtocol reaches violation;
