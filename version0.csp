@@ -4,19 +4,16 @@
 // The process of encrypt and decrypt have not been implemented
 
 enum{PowerSupplier, request, publicKey, privateKey, usageQuery, usageInfo, PS_nonce, attacker_nonce, TPMquote, oldHash, operation,
-	extend_nonce, extend_seal, extend_accept, extend_calculate_add, extend_calculate_multiply, extend_reject};
+	extend_nonce, extend_seal, extend_accept, extend_calculate_add, extend_calculate_multiply, extend_reject, TPMValue};
 
 channel c1 0;                         // channel between Power Supplier and TRE
 channel c2 0;                         // channel between TRE and TPM
-channel c3 0;                         // channel for communication for hash value
+//channel c3 0;                         // channel for communication for hash value
 
 var realQuote;
 var quoteMatch = false;
 var price;
 var hashValue;
-
-// var PowerSupplier_TRE_connection = 0; // 0 represents connection not built, 1 represents connection built
-// var TRE_TPM_connection = 0; 
 var TPMAccept = 0;                       // 0 represents deny the query, 1 represents accept the query
 
 // Process of Power Supplier, it consists of three events:
@@ -42,7 +39,7 @@ QueryPrice(pubk) =
 
 // Thirdly, end connection	
 PowerSupplierVerifyQuote(quote, x) = 
-	if(x == 1)  //TRE rejects the request from PowerSupplier
+	if(x == 1)  //TRE accepts the request from PowerSupplier
 	{	
 		// PS_nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
 		calculateQuote{realQuote = call(HashFunction1, 9, 1, 2, 3, 4);} ->
@@ -85,9 +82,9 @@ TREConnect() =
 	c1?x.request ->			         	// receive request from Power Supplier
 	c1?PS_nonce ->				        // receive nonce from Power Supplier
 	c2!extend_nonce ->
-	c2?publicKey ->
+//	c2?publicKey ->
 	c2!extend_seal ->
-	c1!publicKey -> 
+//	c1!publicKey -> 
 	TREConnected(x);
 
 TREConnected(x) = 
@@ -95,15 +92,15 @@ TREConnected(x) =
 		c1?usageQuery -> 
 		TREResponseUsageQuery()
 	}
-	
 	else{
-		c1?usageQuery -> 
-		TREResponseUsageQuery()
+		TREDisconnect()
 	};
 	
 
 // Secondly, respond the usage query
 TREResponseUsageQuery() =
+//	(
+	c2!1 ->
 	c2!extend_accept ->
 	c2!usageQuery ->                // send usage query to TPM
 	c2?usageInfo ->                 // get usage info from TPM (encrypted)
@@ -111,6 +108,13 @@ TREResponseUsageQuery() =
 	c2!extend_calculate_multiply ->
 	calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
 	TREDisconnect();
+//	)
+//	[]
+//	(
+//	c2!0 ->
+//	c2!extend_reject ->
+//	TREDisconnect()
+//	);
 		
 // Thirdly, finish the service and disconnect
 TREDisconnect() = 
@@ -129,41 +133,56 @@ TPMConnect() =
 	// ...
 	// prepare keys, not implemented yet
 	// ...
+	
 	// extend nonce
 	c2?extend_nonce ->
 	extendOperation{hashValue = call(Extend, 0, 9);} ->
 
-	c2!publicKey ->                     // send public key
+//	c2!publicKey ->                     // send public key
 	// extend seal
 	c2?extend_seal ->
 	extendOperation{hashValue = call(Extend, hashValue, 1);} ->
 	TPMResponseUsageQuery();
 	
 TPMResponseUsageQuery() = 
-	if(TPMAccept == 1){
-		c2?usageInfo ->                 // **** Need to encrypt using private key ****
-		
-		// extend accept 
-		c2?extend_accept ->
-		extendOperation{hashValue = call(Extend, hashValue, 2);} ->
-		// extend calculate_add ->
-		c2?extend_calculate_add ->
-		extendOperation{hashValue = call(Extend, hashValue, 3);} ->
-		// extend calculate_multiply
-		c2?extend_calculate_multiply ->
-//		extendOperation{hashValue = call(Extend, hashValue, 4);} ->
-		c2!call(Extend, hashValue, 4) ->
-		TPMEnd()
-	}
-	
-	else{
-		// extend reject
-		c2?extend_reject ->
-//		extendOperation{hashValue = call(Extend, hashValue, 5);}  ->
-		c2!call(Extend, hashValue, 5) ->
-		TPMEnd()
+	c2?TPMValue ->
+	updateValue{TPMAccept = TPMValue;} ->
+ 	
+	if(TPMAccept == 1)
+	{
+		TPMAcceptQuery(TPMAccept)
+	}	
+	else
+	{
+		TPMRejectQuery(TPMAccept)
 	};
 	
+TPMAcceptQuery(accept) = 
+	
+	c2?usageInfo ->                 // **** Need to encrypt using private key ****
+		
+	// extend accept 
+	c2?extend_accept ->
+	extendOperation{hashValue = call(Extend, hashValue, 2);} ->
+	// extend calculate_add ->
+	c2?extend_calculate_add ->
+	extendOperation{hashValue = call(Extend, hashValue, 3);} ->
+	// extend calculate_multiply
+	c2?extend_calculate_multiply ->
+//	extendOperation{hashValue = call(Extend, hashValue, 4);} ->
+	c2!call(Extend, hashValue, 4) ->
+	TPMEnd();
+
+TPMRejectQuery(reject) = 
+	
+	c2?usageInfo ->                 // **** Need to encrypt using private key ****
+	// extend reject
+	c2?extend_reject ->
+//	extendOperation{hashValue = call(Extend, hashValue, 5);}  ->
+	c2!call(Extend, hashValue, 5) ->
+	TPMEnd();
+
+
 // TPM end service
 TPMEnd() = c2?TPMquote -> Skip;
 	
