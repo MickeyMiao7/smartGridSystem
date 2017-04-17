@@ -29,13 +29,16 @@ PSConnected() =
 	PSReceiveResponse();
 
 // 3. receive response from TRE
-PSReceiveResponse() =
-	(c1?EncryptedPrice -> 
+PSReceiveResponse() = 
+	c1?price ->
 	c1?quote ->
-	PScalculateHash(true, quote)) []
-	(c1?NoPrice ->
-	c1?quote ->
-	PScalculateHash(false, quote));
+	if (price == EncryptedPrice) {
+		
+		PScalculateHash(true, quote)
+	}
+	else{
+		PScalculateHash(false, quote)
+	};
 
 // 4. calculate local hash
 PScalculateHash(x, quote) = 
@@ -152,7 +155,7 @@ TPMReject() =
 	TPMEnd();
 
 TPMEnd() = 
-	c2?91234 -> // send fianl quote
+	c2!91234 -> // send fianl quote
 	Skip;
 
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
