@@ -84,10 +84,8 @@ TREProc() = TREConnect();
 TREConnect() = 
 	c1?x.request ->			         	// receive request from Power Supplier
 	c1?PS_nonce ->				        // receive nonce from Power Supplier
-	//extendOperation{hashValue = call(Extend, 0, 9);} ->  			// extend nonce
 	c2!extend_nonce ->
 	c2?publicKey ->
-	//extendOperation{hashValue = call(Extend, hashValue, 1);} -> 				// extend seal
 	c2!extend_seal ->
 	c1!publicKey -> 
 	TREConnected(x);
@@ -95,37 +93,25 @@ TREConnect() =
 TREConnected(x) = 
 	if(x == PowerSupplier){
 		c1?usageQuery -> 
-		TREResponseUsageQuery(1)
+		TREResponseUsageQuery()
 	}
 	
 	else{
 		c1?usageQuery -> 
-		TREResponseUsageQuery(0)
+		TREResponseUsageQuery()
 	};
 	
 
 // Secondly, respond the usage query
-TREResponseUsageQuery(accept) =
-	if (accept == 1){
-		// extendOperation{hashValue = call(Extend, hashValue, 2);} ->                    // extend accept
-		c2!extend_accept ->
-		c2!usageQuery ->                // send usage query to TPM
-		c2?usageInfo ->                 // get usage info from TPM (encrypted)
-		// extendOperation{hashValue = call(Extend, hashValue, 3);} ->                    // extend calculate_add
-		c2!extend_calculate_add ->
-		// extendOperation{hashValue = call(Extend, hashValue, 4);} ->                    // extend calculate_multiply
-		c2!extend_calculate_multiply ->
-		calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
-		TREDisconnect()
-	}
-	else{
-		// extendOperation{hashValue = call(Extend, hashValue, 5);} ->                     // extend(reject)
-		c2!extend_reject ->
-		TREDisconnect() 				
-	};
-	
-	
-
+TREResponseUsageQuery() =
+	c2!extend_accept ->
+	c2!usageQuery ->                // send usage query to TPM
+	c2?usageInfo ->                 // get usage info from TPM (encrypted)
+	c2!extend_calculate_add ->
+	c2!extend_calculate_multiply ->
+	calculatePrice{price = call(CalculatePrice, usageInfo);} ->    // calculate the price 
+	TREDisconnect();
+		
 // Thirdly, finish the service and disconnect
 TREDisconnect() = 
 	c2!TPMquote ->
@@ -157,7 +143,7 @@ TPMResponseUsageQuery() =
 	if(TPMAccept == 1){
 		c2?usageInfo ->                 // **** Need to encrypt using private key ****
 		
-		// extend accept
+		// extend accept 
 		c2?extend_accept ->
 		extendOperation{hashValue = call(Extend, hashValue, 2);} ->
 		// extend calculate_add ->
