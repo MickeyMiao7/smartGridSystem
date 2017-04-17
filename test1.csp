@@ -1,0 +1,33 @@
+﻿enum{local};
+
+channel c1 0; 
+var success = false;
+var global = 1;
+
+test() = 
+    dotest ->
+	c1!1 ->
+	Skip;
+
+client() = 
+    doclient ->
+	c1?x ->
+	judge(true);
+
+judge(x) = 
+    if(x == global){
+      is_judge ->
+      change{success = true} ->
+      end()
+    }
+    else{
+      not_judge -> 
+      dontchange ->
+      end()
+    };
+	
+end() = Skip;
+Experiment() = test() ||| client();
+
+#define state success;
+#assert Experiment reaches state;
