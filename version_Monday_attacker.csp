@@ -1,8 +1,8 @@
 ﻿#import "PAT.Lib.Tookit";
 
 // all constant starts with Upper case, while all local variable starts with lower case.
-enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, UsageQuery, Price, EncryptedPrice, ExtendNonce, 
-	ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker, Nobody, TRE};
+enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, EncryptedUsageQuery, Price, EncryptedPrice, ExtendNonce, 
+   ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker, Nobody, TRE};
 
 channel c1 0;
 channel c2 0;
@@ -11,7 +11,7 @@ channel c2 0;
 var REALQUOTE;
 var QUOTEMATCH; // if TRE returns real quote
 var TPMFINALQUOTE;
-var hashValue;
+var HASHVALUE;
 var PS_TRE_CONNECTS = false;
 var ATTACKER_TRE_CONNECTS = false;
 var ATTACKER_QUERY_ACCEPT = false;
@@ -21,48 +21,52 @@ PSProc() = PSConnectTRE();
 
 // 1. send Request and nonce
 PSConnectTRE() =
-	c1!PowerSupplier.Request ->
-	c1!PSNonce ->
-	psconnected{PS_TRE_CONNECTS = true;} ->
-	PSConnected();
+   c1!PowerSupplier.Request ->
+   c1!PSNonce ->
+   psconnected{PS_TRE_CONNECTS = true;} ->
+   PSConnected();
 
 // 2. get public key and send query
 PSConnected() = 
-	c1?PublicKey ->
-	c1!UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
-	PSReceiveResponse();
+   c1?PublicKey ->
+   encryptUsageQuery ->  // a dummy encrypt function
+   c1!EncryptedUsageQuery -> 
+   PSReceiveResponse();
 
 // 3. receive response from TRE
 PSReceiveResponse() = 
-	c1?price ->
-	c1?quote ->
-	if (price == EncryptedPrice) {
-		
-		PScalculateHash(true, quote)
-	}
-	else{
-		PScalculateHash(false, quote)
-	};
+   c1?price ->
+   c1?quote ->
+   if (price == EncryptedPrice) {
+      decryptPrice -> // dummy decrypt function
+      PScalculateHash(true, quote)
+   }
+   else{
+      PScalculateHash(false, quote)
+   };
 
 // 4. calculate local hash
 PScalculateHash(x, quote) = 
-	if (x == true) {// PS_nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
-		calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
-		PSJudge(quote)
-	}
-	else{// PS_nonce -> 9, seal -> 1, reject -> 5
-		calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
-		PSJudge(quote)
-	};
+   // We used c# function to calculate hash. This is a simplified hash function. The hash value it returns is a int value.
+   // The parametre matches are listed below:
+   // nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
+   if (x == true) {
+      calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
+      PSJudge(quote)
+   }
+   else{// PS_nonce -> 9, seal -> 1, reject -> 5
+      calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
+      PSJudge(quote)
+   };
 
 // 5. last step, compare quote and hash
 PSJudge(quote) = 
-	if (REALQUOTE == quote) {
-		judge{QUOTEMATCH = true} -> Skip
-	}
-	else {
-		judge{QUOTEMATCH = false} -> Skip
-	};
+   if (REALQUOTE == quote) {
+      judge{QUOTEMATCH = true} -> Skip
+   }
+   else {
+      judge{QUOTEMATCH = false} -> Skip
+   };
 
 
 // Process of TRE
@@ -70,57 +74,57 @@ TREProc() = TREStart();
 
 // 1. set up procedure
 TREStart() = 
-	c1?sender.Request ->
-	startTPM -> // simplify the start process
-	c1?nonce -> // different from PSNonce, this is a local variable
-	c2!ExtendNonce ->
-	c2!ExtendSeal ->
-	c2?PublicKey ->
-	c1!PublicKey ->
-	c1?UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
-	TREDecide(sender);
+   c1?sender.Request ->
+   startTPM -> // simplify the start process
+   c1?nonce -> // different from PSNonce, this is a local variable
+   c2!ExtendNonce ->
+   c2!ExtendSeal ->
+   c2?PublicKey ->
+   c1!PublicKey ->
+   c1?EncryptedUsageQuery ->  // dummy encrypt function
+   TREDecide(sender);
 
 // 2. alt process
 TREDecide(sender) =
-	if (sender == PowerSupplier) {
-		TREAccept()
-	}
-	else{
-		trereject{ATTACKER_QUERY_ACCEPT = false;} ->
-		TREReject()
-	};
+   if (sender == PowerSupplier) {
+      TREAccept()
+   }
+   else{
+      trereject{ATTACKER_QUERY_ACCEPT = false;} ->
+      TREReject()
+   };
 
 // 3. extend accept, query usage, get usage info
 TREAccept() =
-	c2!ExtendAccept ->
-	c2!UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
-	c2?UsageInfo ->
-	TRECalculatePrice();
+   c2!ExtendAccept ->
+   c2!EncryptedUsageQuery -> // dummy encrypt function
+   c2?UsageInfo ->
+   TRECalculatePrice();
 
 // 4. calculate price locally, hash calculate operation
 TRECalculatePrice() =
-	calculateAdd ->
-	calculateMul ->
-	c2!ExtendAdd ->
-	c2!ExtendMul ->
-	TRESendPrice();
+   calculateAdd ->
+   calculateMul ->
+   c2!ExtendAdd ->
+   c2!ExtendMul ->
+   TRESendPrice();
 
 // 5. send price to TPM, get encrypted price, send back to PS
 TRESendPrice() = 
-	c2!Price ->
-	c2?EncryptedPrice ->
-	c1!EncryptedPrice ->
-	TREEnd();
+   c2!Price ->
+   c2?EncryptedPrice ->
+   c1!EncryptedPrice ->
+   TREEnd();
 
 TREReject() = 
-	c2!ExtendReject ->
-	c1!NoPrice ->
-	TREEnd();
+   c2!ExtendReject ->
+   c1!NoPrice ->
+   TREEnd();
 
 TREEnd() = 
-	c2?quote -> // note this is local variable, can be int number
-	c1!quote ->
-	Skip;
+   c2?quote -> // note this is local variable, can be int number
+   c1!quote ->
+   Skip;
 
 
 // Process of TPM
@@ -129,84 +133,88 @@ TPMProc() = TPMStart();
 
 // 1. receive extend nonce, prepare key, receive seal, send public key
 TPMStart() = 
-	c2?ExtendNonce ->
-	extendOperation{hashValue = call(Extend, 0, 9);} ->           // extend nonce in TPM
-	perpareKeys ->
-	c2?ExtendSeal ->
-	extendOperation{hashValue = call(Extend, hashValue, 1);} ->   // extend seal in TPM
-	c2!PublicKey ->
-	TPMBinary();
+   c2?ExtendNonce ->
+   extendOperation{HASHVALUE = call(Extend, 0, 9);} ->           // extend nonce in TPM
+   perpareKeys ->
+   c2?ExtendSeal ->
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 1);} ->   // extend seal in TPM
+   c2!PublicKey ->
+   TPMBinary();
 
-// 2. TRE accept or reject will lead to different operation
-TPMBinary() = // this part is decided by external 
-	(TPMAccept()) [] (TPMReject());
+// 2. TRE accept or reject will lead to different operation.
+// Note that in the accept procedure, we hardcoded the price calculate function to be first add and then multiply. They are extened in this order.
+TPMBinary() = 
+   (TPMAccept()) [] (TPMReject());
 
 TPMAccept() = 
-	c2?ExtendAccept ->
-	extendOperation{hashValue = call(Extend, hashValue, 2);} ->          // extend accept in TPM
-	c2?UsageQuery ->
-	decryptUsage -> // todo
-	c2!UsageInfo ->
-	c2?operation -> // local variable (here should be ExtendAdd)
-	extendOperation{hashValue = call(Extend, hashValue, 3);} ->          // extend calculate_add in TPM
-	c2?operation2 ->
-	c2?Price ->
-	encryptPrice ->
-	c2!EncryptedPrice ->
-	c2!call(Extend, hashValue, 4) ->                                     // extend calculate_multiply and put the final hashvalue into the channel
-	Skip;
+   c2?ExtendAccept ->
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 2);} ->  // extend accept
+   c2?EncryptedUsageQuery ->
+   decryptUsage -> // dummy decrypt function
+   c2!UsageInfo ->
+   c2?operation -> // local variable (here should be ExtendAdd)
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 3);} -> // extend calculate_add 
+   c2?operation2 ->
+   c2?Price ->
+   encryptPrice -> // dummy encrypt function
+   c2!EncryptedPrice ->
+   c2!call(Extend, HASHVALUE, 4) ->  // extend calculate_multiply, put the final hashvalue into the channel
+   Skip;
 
 TPMReject() = 
-	c2?ExtendReject ->
-	c2!call(Extend, hashValue, 5) ->									 // extend reject in TPM and put the final hashvalue into the channel
-	Skip;
+   c2?ExtendReject ->
+   c2!call(Extend, HASHVALUE, 5) ->  // extend reject, put the final hashvalue into the channel
+   Skip;
 
 // Process of Attacker
 AttackerProc() = AttackerConnectTRE();
 
 // 1. send Request and nonce
 AttackerConnectTRE() =
-	c1!Attacker.Request ->
-	c1!PSNonce ->
-	attackerconnected{ATTACKER_TRE_CONNECTS = true;} ->
-	AttackerConnected();
+   c1!Attacker.Request ->
+   c1!PSNonce ->
+   attackerconnected{ATTACKER_TRE_CONNECTS = true;} ->
+   AttackerConnected();
 
 // 2. get public key and send query
 AttackerConnected() = 
-	c1?PublicKey ->
-	c1!UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
-	PSReceiveResponse();
+   c1?PublicKey ->
+   c1!EncryptedUsageQuery -> 
+   PSReceiveResponse();
 
 // 3. receive response from TRE
 AttackerReceiveResponse() = 
-	c1?price ->
-	c1?quote ->
-	if (price == EncryptedPrice) {		
-		AttackercalculateHash(true, quote)
-	}
-	else{
-		AttackercalculateHash(false, quote)
-	};
+   c1?price ->
+   c1?quote ->
+   if (price == EncryptedPrice) {      
+      AttackercalculateHash(true, quote)
+   }
+   else{
+      AttackercalculateHash(false, quote)
+   };
 
 // 4. calculate local hash
 AttackercalculateHash(x, quote) = 
-	if (x == true) {// PS_nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
-		calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
-		AttackerJudge(quote)
-	}
-	else{// PS_nonce -> 9, seal -> 1, reject -> 5
-		calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
-		AttackerJudge(quote)
-	};
+   if (x == true) { 
+      // We used c# function to calculate hash. This is a simplified hash function. The hash value it returns is a int value.
+      // The parametre matches are listed below:
+      // nonce -> 9, seal -> 1, accept -> 2, calculate_add -> 3, calculate_multiply -> 4
+      calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
+      AttackerJudge(quote)
+   }
+   else{// nonce -> 9, seal -> 1, reject -> 5
+      calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
+      AttackerJudge(quote)
+   };
 
-// 5. last step, compare quote and hash
+// 5. last step, compare quote and local hash value.
 AttackerJudge(quote) = 
-	if (REALQUOTE == quote) {
-		judge{QUOTEMATCH = true} -> Skip
-	}
-	else {
-		judge{QUOTEMATCH = false} -> Skip
-	};
+   if (REALQUOTE == quote) {
+      judge{QUOTEMATCH = true} -> Skip
+   }
+   else {
+      judge{QUOTEMATCH = false} -> Skip
+   };
 
 AttackedProtocol = PSProc() ||| AttackerProc() ||| TREProc() ||| TPMProc();
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
