@@ -1,7 +1,7 @@
 ﻿#import "PAT.Lib.Tookit";
 
 // all constant starts with Upper case, while all local variable starts with lower case.
-enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, UsageQuery, Price, EncryptedPrice, ExtendNonce, 
+enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, EncryptedUsageQuery, Price, EncryptedPrice, ExtendNonce, 
 	ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker};
 
 channel c1 0;
@@ -11,7 +11,7 @@ channel c2 0;
 var REALQUOTE;
 var QUOTEMATCH; // if TRE returns real quote
 var TPMFINALQUOTE;
-var hashValue;
+var HASHVALUE;
 
 
 // Process of PS
@@ -26,7 +26,8 @@ PSConnectTRE() =
 // 2. get public key and send query
 PSConnected() = 
 	c1?PublicKey ->
-	c1!UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
+	encryptUsageQuery ->
+	c1!EncryptedUsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
 	PSReceiveResponse();
 
 // 3. receive response from TRE
@@ -34,7 +35,7 @@ PSReceiveResponse() =
 	c1?price ->
 	c1?quote ->
 	if (price == EncryptedPrice) {
-		
+		decryptPrice ->
 		PScalculateHash(true, quote)
 	}
 	else{
@@ -74,7 +75,7 @@ TREStart() =
 	c2!ExtendSeal ->
 	c2?PublicKey ->
 	c1!PublicKey ->
-	c1?UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
+	c1?EncryptedUsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
 	TREDecide(sender);
 
 // 2. alt process
@@ -89,7 +90,7 @@ TREDecide(sender) =
 // 3. extend accept, query usage, get usage info
 TREAccept() =
 	c2!ExtendAccept ->
-	c2!UsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
+	c2!EncryptedUsageQuery -> // this part shall be encrypted. However we are not able to encrypt it now.
 	c2?UsageInfo ->
 	TRECalculatePrice();
 
@@ -126,10 +127,10 @@ TPMProc() = TPMStart();
 // 1. receive extend nonce, prepare key, receive seal, send public key
 TPMStart() = 
 	c2?ExtendNonce ->
-	extendOperation{hashValue = call(Extend, 0, 9);} ->           // extend nonce in TPM
+	extendOperation{HASHVALUE = call(Extend, 0, 9);} ->           // extend nonce in TPM
 	perpareKeys ->
 	c2?ExtendSeal ->
-	extendOperation{hashValue = call(Extend, hashValue, 1);} ->   // extend seal in TPM
+	extendOperation{HASHVALUE = call(Extend, HASHVALUE, 1);} ->   // extend seal in TPM
 	c2!PublicKey ->
 	TPMBinary();
 
@@ -139,30 +140,26 @@ TPMBinary() = // this part is decided by external
 
 TPMAccept() = 
 	c2?ExtendAccept ->
-	extendOperation{hashValue = call(Extend, hashValue, 2);} ->          // extend accept in TPM
-	c2?UsageQuery ->
+	extendOperation{HASHVALUE = call(Extend, HASHVALUE, 2);} ->          // extend accept in TPM
+	c2?EncryptedUsageQuery ->
 	decryptUsage -> // todo
 	c2!UsageInfo ->
 	c2?operation -> // local variable (here should be ExtendAdd)
-	extendOperation{hashValue = call(Extend, hashValue, 3);} ->          // extend calculate_add in TPM
+	extendOperation{HASHVALUE = call(Extend, HASHVALUE, 3);} ->          // extend calculate_add in TPM
 	c2?operation2 ->
 	c2?Price ->
 	encryptPrice ->
 	c2!EncryptedPrice ->
-	c2!call(Extend, hashValue, 4) ->                                     // extend calculate_multiply and put the final hashvalue into the channel
+	c2!call(Extend, HASHVALUE, 4) ->                                     // extend calculate_multiply and put the final HASHVALUE into the channel
 	Skip;
 
 TPMReject() = 
 	c2?ExtendReject ->
-	c2!call(Extend, hashValue, 5) ->									 // extend reject in TPM and put the final hashvalue into the channel
+	c2!call(Extend, HASHVALUE, 5) ->									 // extend reject in TPM and put the final HASHVALUE into the channel
 	Skip;
-//
-//TPMEnd() = 
-//	c2!91234 -> // send fianl quote
-//	Skip;
+
 
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
 #define goal QUOTEMATCH == true;
 #assert Protocol reaches goal;
-
 
