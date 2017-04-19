@@ -87,6 +87,7 @@ TREStart() =
 // 2. alt process
 TREDecide(sender) =
    if (sender == PowerSupplier) {
+   	  treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
       TREAccept()
    }
    else{
