@@ -1,8 +1,8 @@
-﻿#import "PAT.Lib.Tookit";
+﻿#import "PAT.Lib.Toolkit";
 
 // all constant starts with Upper case, while all local variable starts with lower case.
 enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, EncryptedUsageQuery, Price, EncryptedPrice, ExtendNonce, 
-   ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker, Nobody, TRE};
+   ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker};
 
 channel c1 0;
 channel c2 0;
@@ -15,6 +15,8 @@ var HASHVALUE;
 var PS_TRE_CONNECTS = false;
 var ATTACKER_TRE_CONNECTS = false;
 var ATTACKER_QUERY_ACCEPT = false;
+var ATTACKER_TPM_CONNECTS = false;
+var ATTACKER_PS_CONNECTS = false;
 
 // Process of PS
 PSProc() = PSConnectTRE();
@@ -167,43 +169,41 @@ TPMReject() =
    c2!call(Extend, HASHVALUE, 5) ->  // extend reject, put the final hashvalue into the channel
    Skip;
 
-
-
-// Process of Attacker
-AttackerProc() = AttackerConnectTRE();
+// Process of Attacker_PS
+Attacker_PS_Proc() = AttackerConnectTRE();
 
 AttackerConnectTRE() =
    c1!Attacker.Request ->
    c1!PSNonce ->
    attackerconnected{ATTACKER_TRE_CONNECTS = true;} ->
-   AttackerConnected();
+   Attacker_PS_Connected();
 
-AttackerConnected() = 
+Attacker_PS_Connected() = 
    c1?PublicKey ->
    c1!EncryptedUsageQuery -> 
    PSReceiveResponse();
    
-AttackerReceiveResponse() = 
+Attacker_PS_ReceiveResponse() = 
    c1?price ->
    c1?quote ->
    if (price == EncryptedPrice) {      
-      AttackercalculateHash(true, quote)
+      Attacker_PS_CalculateHash(true, quote)
    }
    else{
-      AttackercalculateHash(false, quote)
+      Attacker_PS_CalculateHash(false, quote)
    };
    
-AttackercalculateHash(x, quote) = 
+Attacker_PS_CalculateHash(x, quote) = 
    if (x == true) { 
       calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
-      AttackerJudge(quote)
+      Attacker_PS_Judge(quote)
    }
    else{
       calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
-      AttackerJudge(quote)
+      Attacker_PS_Judge(quote)
    };
 
-AttackerJudge(quote) = 
+Attacker_PS_Judge(quote) = 
    if (REALQUOTE == quote) {
       judge{QUOTEMATCH = true} -> Skip
    }
@@ -211,16 +211,120 @@ AttackerJudge(quote) =
       judge{QUOTEMATCH = false} -> Skip
    };
 
+// process of Attacker_TRE
+Attacker_TRE_Proc() = Attacker_TREStart();
 
+// 1. set up procedure
+Attacker_TREStart() = 
+   c1?sender.Request ->
+   startTPM -> // simplify the start process
+   tpmconnected{ATTACKER_TPM_CONNECTS = true;} ->
+   c1?nonce -> // different from PSNonce, this is a local variable
+   c2!ExtendNonce ->
+   c2!ExtendSeal ->
+   c2?PublicKey ->
+   c1!PublicKey ->
+   c1?EncryptedUsageQuery ->  // dummy encrypt function
+   Attacker_TREDecide(sender);
 
-AttackedProtocol = PSProc() ||| AttackerProc() ||| TREProc() ||| TPMProc();
+// 2. alt process
+Attacker_TREDecide(sender) =
+   if (sender == PowerSupplier) {
+   	  treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
+      psconnected{ATTACKER_PS_CONNECTS = true;} ->
+      Attacker_TREAccept()
+   }
+   else{
+      trereject{ATTACKER_QUERY_ACCEPT = false;} ->
+      psconnected{ATTACKER_PS_CONNECTS = true;} ->
+      Attacker_TREReject()
+   };
+
+// 3. extend accept, query usage, get usage info
+Attacker_TREAccept() =
+   c2!ExtendAccept ->
+   c2!EncryptedUsageQuery -> // dummy encrypt function
+   c2?UsageInfo ->
+   Attacker_TRECalculatePrice();
+
+// 4. calculate price locally, hash calculate operation
+Attacker_TRECalculatePrice() =
+   calculateMul ->
+   calculateAdd ->
+   c2!ExtendMul ->
+   c2!ExtendAdd ->
+   Attacker_TRESendPrice();
+
+// 5. send price to TPM, get encrypted price, send back to PS
+Attacker_TRESendPrice() = 
+   c2!Price ->
+   c2?EncryptedPrice ->
+   c1!EncryptedPrice ->
+   TREEnd();
+
+Attacker_TREReject() = 
+   c2!ExtendReject ->
+   c1!NoPrice ->
+   Attacker_TREEnd();
+
+Attacker_TREEnd() = 
+   c2?quote -> // note this is local variable, can be int number
+   c1!quote ->
+   Skip;
+
+// Process of TPM
+
+TPM_TRE_Proc() = TPM_TRE_Start();
+
+// 1. receive extend nonce, prepare key, receive seal, send public key
+TPM_TRE_Start() = 
+   c2?ExtendNonce ->
+   extendOperation{HASHVALUE = call(Extend, 0, 9);} ->           // extend nonce in TPM
+   perpareKeys ->
+   c2?ExtendSeal ->
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 1);} ->   // extend seal in TPM
+   c2!PublicKey ->
+   TPM_TRE_Binary();
+
+// 2. TRE accept or reject will lead to different operation.
+// Note that in the accept procedure, we hardcoded the price calculate function to be first add and then multiply. They are extened in this order.
+TPM_TRE_Binary() = 
+   (TPM_TRE_Accept()) [] (TPM_TRE_Reject());
+
+TPM_TRE_Accept() = 
+   c2?ExtendAccept ->
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 2);} ->  // extend accept
+   c2?EncryptedUsageQuery ->
+   decryptUsage -> // dummy decrypt function
+   c2!UsageInfo ->
+   c2?operation -> // local variable (here should be ExtendAdd)
+   extendOperation{HASHVALUE = call(Extend, HASHVALUE, 4);} -> // extend calculate_mul 
+   c2?operation2 ->
+   c2?Price ->
+   encryptPrice -> // dummy encrypt function
+   c2!EncryptedPrice ->
+   c2!call(Extend, HASHVALUE, 3) ->  // extend calculate_add, put the final hashvalue into the channel
+   Skip;
+
+TPM_TRE_Reject() = 
+   c2?ExtendReject ->
+   c2!call(Extend, HASHVALUE, 5) ->  // extend reject, put the final hashvalue into the channel
+   Skip;
+   
+   
 Protocol = PSProc() ||| TREProc() ||| TPMProc();
+Attacker_PS_Protocol = PSProc() ||| Attacker_PS_Proc() ||| TREProc() ||| TPMProc();
+Attacker_TRE_Protocol = PSProc() ||| TPM_TRE_Proc();
 
 #define goal QUOTEMATCH == true;
 
 // Only when PowerSupplier and TRE, Attacker and TRE are connected, and attacker is accepted by TRE, the attack could be successful.
-#define violation PS_TRE_CONNECTS == true && ATTACKER_TRE_CONNECTS == true && ATTACKER_QUERY_ACCEPT == true;
+#define PS_violation PS_TRE_CONNECTS == true && ATTACKER_TRE_CONNECTS == true && ATTACKER_QUERY_ACCEPT == true;
+
+// Verify the quote returned by the fake TRE whether equals to the right value of quote
+#define TRE_violation QUOTEMATCH == true && ATTACKER_TPM_CONNECTS == true && ATTACKER_PS_CONNECTS == true;
 
 #assert Protocol reaches goal;
-#assert AttackedProtocol reaches violation;
+#assert Attacker_PS_Protocol reaches PS_violation;
+#assert Attacker_TRE_Protocol reaches TRE_violation;
 
