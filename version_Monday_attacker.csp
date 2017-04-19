@@ -1,13 +1,13 @@
 ﻿#import "PAT.Lib.Toolkit";
 
-// all constant starts with Upper case, while all local variable starts with lower case.
+// All constant starts with Upper case, while all local variable starts with lower case.
 enum{PowerSupplier, Request, PSNonce, PublicKey, PrivateKey, EncryptedUsageQuery, Price, EncryptedPrice, ExtendNonce, 
    ExtendSeal, ExtendAccept, ExtendReject, UsageInfo, ExtendAdd, ExtendMul, NoPrice, Attacker};
 
 channel c1 0;
 channel c2 0;
 
-// global variable all in upper case.
+// Global variable all in upper case.
 var REALQUOTE;
 var QUOTEMATCH; // if TRE returns real quote
 var TPMFINALQUOTE;
@@ -18,24 +18,25 @@ var ATTACKER_QUERY_ACCEPT = false;
 var ATTACKER_TPM_CONNECTS = false;
 var ATTACKER_PS_CONNECTS = false;
 
-// Process of PS
+
+//////////// Process of PS ////////////
 PSProc() = PSConnectTRE();
 
-// 1. send Request and nonce
+// 1. Send request and nonce to TRE
 PSConnectTRE() =
    c1!PowerSupplier.Request ->
    c1!PSNonce ->
    psconnected{PS_TRE_CONNECTS = true;} ->
    PSConnected();
 
-// 2. get public key and send query
+// 2. Get public key from TRE and send encrypted usage query to TRE.
 PSConnected() = 
    c1?PublicKey ->
    encryptUsageQuery ->  // a dummy encrypt function
    c1!EncryptedUsageQuery -> 
    PSReceiveResponse();
 
-// 3. receive response from TRE
+// 3. Receive response from TRE
 PSReceiveResponse() = 
    c1?price ->
    c1?quote ->
@@ -47,7 +48,7 @@ PSReceiveResponse() =
       PScalculateHash(false, quote)
    };
 
-// 4. calculate local hash
+// 4. Calculate local hash value by operation.
 PScalculateHash(x, quote) = 
    // We used c# function to calculate hash. This is a simplified hash function. The hash value it returns is a int value.
    // The parametre matches are listed below:
@@ -56,12 +57,12 @@ PScalculateHash(x, quote) =
       calculateHash{REALQUOTE = call(HashFunction1, 9, 1, 2, 3, 4);} ->
       PSJudge(quote)
    }
-   else{// PS_nonce -> 9, seal -> 1, reject -> 5
+   else{// nonce -> 9, seal -> 1, reject -> 5
       calculateHash{REALQUOTE = call(HashFunction2, 9, 1, 5);} ->
       PSJudge(quote)
    };
 
-// 5. last step, compare quote and hash
+// 5. Last step, compare quote and hash
 PSJudge(quote) = 
    if (REALQUOTE == quote) {
       judge{QUOTEMATCH = true} -> Skip
@@ -71,10 +72,10 @@ PSJudge(quote) =
    };
 
 
-// Process of TRE
+//////////// Process of TRE ////////////
 TREProc() = TREStart();
 
-// 1. set up procedure
+// 1. Set up procedure
 TREStart() = 
    c1?sender.Request ->
    startTPM -> // simplify the start process
@@ -83,13 +84,13 @@ TREStart() =
    c2!ExtendSeal ->
    c2?PublicKey ->
    c1!PublicKey ->
-   c1?EncryptedUsageQuery ->  // dummy encrypt function
+   c1?EncryptedUsageQuery ->  
    TREDecide(sender);
 
-// 2. alt process
+// 2. Decide if accept the request or reject. 
 TREDecide(sender) =
    if (sender == PowerSupplier) {
-   	  treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
+        treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
       TREAccept()
    }
    else{
@@ -97,14 +98,14 @@ TREDecide(sender) =
       TREReject()
    };
 
-// 3. extend accept, query usage, get usage info
+// 3. Extend accept, send query usage to TPM, get decrypted usage info.
 TREAccept() =
    c2!ExtendAccept ->
-   c2!EncryptedUsageQuery -> // dummy encrypt function
+   c2!EncryptedUsageQuery -> 
    c2?UsageInfo ->
    TRECalculatePrice();
 
-// 4. calculate price locally, hash calculate operation
+// 4. Calculate price locally, hash calculate operation.
 TRECalculatePrice() =
    calculateAdd ->
    calculateMul ->
@@ -112,25 +113,27 @@ TRECalculatePrice() =
    c2!ExtendMul ->
    TRESendPrice();
 
-// 5. send price to TPM, get encrypted price, send back to PS
+// 5. Send price to TPM, receive encrypted price, send back to PS
 TRESendPrice() = 
    c2!Price ->
    c2?EncryptedPrice ->
    c1!EncryptedPrice ->
    TREEnd();
 
+// 6. If reject, extend the reject operation and send NoPrice to power supplier.
 TREReject() = 
    c2!ExtendReject ->
    c1!NoPrice ->
    TREEnd();
 
+// 7. Get TPM quote(is an integer), send back to power supplier.
 TREEnd() = 
-   c2?quote -> // note this is local variable, can be int number
+   c2?quote -> 
    c1!quote ->
    Skip;
 
 
-// Process of TPM
+//////////// Process of TPM ////////////
 
 TPMProc() = TPMStart();
 
@@ -155,9 +158,9 @@ TPMAccept() =
    c2?EncryptedUsageQuery ->
    decryptUsage -> // dummy decrypt function
    c2!UsageInfo ->
-   c2?operation -> // local variable (here should be ExtendAdd)
+   c2?operation -> // local variable (should be ExtendAdd)
    extendOperation{HASHVALUE = call(Extend, HASHVALUE, 3);} -> // extend calculate_add 
-   c2?operation2 ->
+   c2?operation2 -> // should be ExtendMul
    c2?Price ->
    encryptPrice -> // dummy encrypt function
    c2!EncryptedPrice ->
@@ -169,7 +172,7 @@ TPMReject() =
    c2!call(Extend, HASHVALUE, 5) ->  // extend reject, put the final hashvalue into the channel
    Skip;
 
-// Process of Attacker_PS
+//////////// Process of Attacker_PS ////////////
 Attacker_PS_Proc() = AttackerConnectTRE();
 
 AttackerConnectTRE() =
@@ -211,7 +214,7 @@ Attacker_PS_Judge(quote) =
       judge{QUOTEMATCH = false} -> Skip
    };
 
-// process of Attacker_TRE
+//////////// process of Attacker_TRE ////////////
 Attacker_TRE_Proc() = Attacker_TREStart();
 
 // 1. set up procedure
@@ -230,7 +233,7 @@ Attacker_TREStart() =
 // 2. alt process
 Attacker_TREDecide(sender) =
    if (sender == PowerSupplier) {
-   	  treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
+        treaccept{ATTACKER_QUERY_ACCEPT = true;}  ->
       psconnected{ATTACKER_PS_CONNECTS = true;} ->
       Attacker_TREAccept()
    }
@@ -243,7 +246,7 @@ Attacker_TREDecide(sender) =
 // 3. extend accept, query usage, get usage info
 Attacker_TREAccept() =
    c2!ExtendAccept ->
-   c2!EncryptedUsageQuery -> // dummy encrypt function
+   c2!EncryptedUsageQuery -> 
    c2?UsageInfo ->
    Attacker_TRECalculatePrice();
 
@@ -268,11 +271,11 @@ Attacker_TREReject() =
    Attacker_TREEnd();
 
 Attacker_TREEnd() = 
-   c2?quote -> // note this is local variable, can be int number
+   c2?quote -> 
    c1!quote ->
    Skip;
 
-// Process of TPM
+//////////// Process of corresponding TPM (TPM is not hacked) ////////////
 
 TPM_TRE_Proc() = TPM_TRE_Start();
 
